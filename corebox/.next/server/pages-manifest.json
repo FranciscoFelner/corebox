@@ -1,0 +1,14 @@
+{
+  "/_app": "pages/_app.js",
+  "/_error": "pages/_error.js",
+  "/_document": "pages/_document.js",
+  "/": "pages/index.js",
+  "/box/[id]": "pages/box/[id].js",
+  "/subscribe/address": "pages/subscribe/address.js",
+  "/subscribe/payment": "pages/subscribe/payment.js",
+  "/subscription-success": "pages/subscription-success.js",
+  "/subscribe": "pages/subscribe.js",
+  "/seller/dashboard": "pages/seller/dashboard.js",
+  "/subscribe/account": "pages/subscribe/account.js",
+  "/boxes": "pages/boxes.js"
+}
