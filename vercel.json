@@ -1,0 +1,14 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "environment": {
+    "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY": "your_stripe_publishable_key",
+    "STRIPE_SECRET_KEY": "your_stripe_secret_key",
+    "STRIPE_WEBHOOK_SECRET": "your_stripe_webhook_secret",
+    "NEXT_PUBLIC_STRIPE_CONNECT_CLIENT_ID": "your_stripe_connect_client_id",
+    "STRIPE_CONNECT_REDIRECT_URI": "your_app_url/api/stripe/connect/callback"
+  }
+} 
