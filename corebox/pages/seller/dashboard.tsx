@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -9,6 +9,18 @@ interface SellerData {
   email: string;
   storeName: string;
   name: string;
+  stripeAccountId?: string;
+  stripeAccountStatus?: 'active' | 'pending' | 'not_connected';
+  stripeOnboardingComplete?: boolean;
+}
+
+interface StripeAccountStatus {
+  hasStripeAccount: boolean;
+  accountId?: string;
+  status?: 'active' | 'pending' | 'not_connected';
+  detailsSubmitted?: boolean;
+  chargesEnabled?: boolean;
+  payoutsEnabled?: boolean;
 }
 
 export default function SellerDashboard() {
@@ -16,6 +28,11 @@ export default function SellerDashboard() {
   const [sellerData, setSellerData] = useState<SellerData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
+  const [stripeStatus, setStripeStatus] = useState<StripeAccountStatus | null>(null);
+  const [isLoadingStripe, setIsLoadingStripe] = useState(false);
+  const [stripeError, setStripeError] = useState('');
+  // Usar uma ref para rastrear se a verificação de status já foi feita
+  const statusCheckDone = useRef(false);
 
   useEffect(() => {
     // Check if the seller is logged in
@@ -38,6 +55,153 @@ export default function SellerDashboard() {
     
     checkAuth();
   }, [router]);
+
+  // Verificar o status da conta Stripe apenas uma vez quando o componente montar
+  useEffect(() => {
+    // Função para verificar o status apenas uma vez
+    const checkStatusOnce = async () => {
+      // Se o vendedor estiver logado e a verificação ainda não foi feita
+      if (sellerData?.id && !statusCheckDone.current && !isLoadingStripe) {
+        console.log("Verificando status do Stripe (uma única vez)");
+        statusCheckDone.current = true;
+        await checkStripeStatus();
+      }
+    };
+
+    checkStatusOnce();
+
+    // Cleanup - não precisamos remover nada aqui
+  }, [sellerData]); // Depende apenas de sellerData, não de router.query
+
+  // Se há parâmetros de sucesso na URL, atualiza o status
+  useEffect(() => {
+    if (router.query.success === 'stripe_connect_complete' && !isLoadingStripe) {
+      console.log("Sucesso detectado na URL, atualizando status");
+      checkStripeStatus();
+    }
+  }, [router.query.success]); // Apenas depende de success
+
+  // Função para verificar o status da conta Stripe
+  const checkStripeStatus = async () => {
+    if (!sellerData?.id) return;
+    
+    // Evitar chamadas repetidas se já estiver carregando
+    if (isLoadingStripe) return;
+    
+    setIsLoadingStripe(true);
+    setStripeError('');
+    
+    try {
+      console.log(`Verificando status para vendedor ${sellerData.id}`);
+      const response = await fetch(`/api/stripe/connect/status?sellerId=${sellerData.id}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setStripeStatus(data);
+        
+        // Atualizar os dados do vendedor com as informações do Stripe
+        if (data.hasStripeAccount) {
+          setSellerData(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              stripeAccountId: data.accountId,
+              stripeAccountStatus: data.status,
+              stripeOnboardingComplete: data.detailsSubmitted
+            };
+          });
+          
+          // Atualizar os dados no localStorage
+          const updatedData = {
+            ...sellerData,
+            stripeAccountId: data.accountId,
+            stripeAccountStatus: data.status,
+            stripeOnboardingComplete: data.detailsSubmitted
+          };
+          localStorage.setItem('sellerData', JSON.stringify(updatedData));
+        }
+      } else {
+        setStripeError(data.error || 'Erro ao verificar status do Stripe');
+      }
+    } catch (error) {
+      console.error('Erro ao verificar status do Stripe:', error);
+      setStripeError('Erro ao verificar status do Stripe. Por favor, tente novamente.');
+    } finally {
+      setIsLoadingStripe(false);
+    }
+  };
+
+  // Função para iniciar o processo de onboarding do Stripe
+  const connectStripe = async () => {
+    if (!sellerData?.id || !sellerData?.email) return;
+    
+    setIsLoadingStripe(true);
+    setStripeError('');
+    
+    try {
+      console.log('Iniciando conexão com Stripe para:', { id: sellerData.id, email: sellerData.email });
+      
+      const response = await fetch('/api/stripe/connect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sellerId: sellerData.id,
+          email: sellerData.email,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.url) {
+        console.log('Link de onboarding do Stripe gerado com sucesso');
+        // Redirecionar para o Stripe Connect Onboarding
+        window.location.href = data.url;
+      } else {
+        console.error('Erro na resposta da API:', data);
+        
+        // Exibir mensagem de erro detalhada
+        if (data.message) {
+          setStripeError(`${data.error}: ${data.message}`);
+        } else if (data.details) {
+          setStripeError(`${data.error}: ${data.details}`);
+        } else {
+          setStripeError(data.error || 'Erro ao conectar com o Stripe');
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao conectar com o Stripe:', error);
+      setStripeError('Erro ao conectar com o Stripe. Por favor, tente novamente.');
+    } finally {
+      setIsLoadingStripe(false);
+    }
+  };
+
+  // Função para acessar o dashboard do Stripe
+  const goToStripeDashboard = async () => {
+    if (!sellerData?.id) return;
+    
+    setIsLoadingStripe(true);
+    setStripeError('');
+    
+    try {
+      const response = await fetch(`/api/stripe/connect/login-link?sellerId=${sellerData.id}`);
+      const data = await response.json();
+      
+      if (response.ok && data.url) {
+        // Abrir o dashboard do Stripe em uma nova aba
+        window.open(data.url, '_blank');
+      } else {
+        setStripeError(data.error || 'Erro ao acessar dashboard do Stripe');
+      }
+    } catch (error) {
+      console.error('Erro ao acessar dashboard do Stripe:', error);
+      setStripeError('Erro ao acessar dashboard do Stripe. Por favor, tente novamente.');
+    } finally {
+      setIsLoadingStripe(false);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('sellerData');
@@ -68,6 +232,104 @@ export default function SellerDashboard() {
       </div>
     );
   }
+
+  // Componente para exibir o status da conta Stripe
+  const StripeConnectStatus = () => {
+    if (isLoadingStripe) {
+      return (
+        <div className={styles.stripeLoading}>
+          <div className={styles.loadingSpinner}></div>
+          <p>Verificando status do Stripe...</p>
+        </div>
+      );
+    }
+
+    if (stripeError) {
+      return (
+        <div className={styles.stripeError}>
+          <p>{stripeError}</p>
+          <div className={styles.stripeActions}>
+            <button 
+              className={styles.retryButton}
+              onClick={checkStripeStatus}
+            >
+              Verificar Status
+            </button>
+            <button 
+              className={styles.connectStripeButton}
+              onClick={connectStripe}
+              disabled={isLoadingStripe}
+            >
+              Tentar Novamente
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (!stripeStatus || !stripeStatus.hasStripeAccount) {
+      return (
+        <div className={styles.stripeNotConnected}>
+          <h3>Conecte-se ao Stripe para receber pagamentos</h3>
+          <p>Para receber pagamentos dos seus clientes, você precisa conectar sua conta ao Stripe.</p>
+          <button 
+            className={styles.connectStripeButton}
+            onClick={connectStripe}
+            disabled={isLoadingStripe}
+          >
+            {isLoadingStripe ? 'Conectando...' : 'Conectar ao Stripe'}
+          </button>
+        </div>
+      );
+    }
+
+    if (stripeStatus.status === 'pending' || !stripeStatus.detailsSubmitted) {
+      return (
+        <div className={styles.stripePending}>
+          <h3>Complete seu cadastro no Stripe</h3>
+          <p>Você já iniciou o processo de cadastro no Stripe, mas ainda precisa completar algumas informações.</p>
+          <button 
+            className={styles.completeStripeButton}
+            onClick={goToStripeDashboard}
+            disabled={isLoadingStripe}
+          >
+            Completar cadastro
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className={styles.stripeConnected}>
+        <h3>Conta Stripe conectada</h3>
+        <p>Sua conta Stripe está ativa e pronta para receber pagamentos.</p>
+        <div className={styles.stripeStatus}>
+          <div className={styles.stripeStatusItem}>
+            <span className={styles.statusLabel}>Status:</span>
+            <span className={`${styles.statusValue} ${styles.statusActive}`}>Ativo</span>
+          </div>
+          <div className={styles.stripeStatusItem}>
+            <span className={styles.statusLabel}>Pagamentos:</span>
+            <span className={`${styles.statusValue} ${stripeStatus.chargesEnabled ? styles.statusActive : styles.statusInactive}`}>
+              {stripeStatus.chargesEnabled ? 'Habilitados' : 'Desabilitados'}
+            </span>
+          </div>
+          <div className={styles.stripeStatusItem}>
+            <span className={styles.statusLabel}>Saques:</span>
+            <span className={`${styles.statusValue} ${stripeStatus.payoutsEnabled ? styles.statusActive : styles.statusInactive}`}>
+              {stripeStatus.payoutsEnabled ? 'Habilitados' : 'Desabilitados'}
+            </span>
+          </div>
+        </div>
+        <button 
+          className={styles.stripeDashboardButton}
+          onClick={goToStripeDashboard}
+        >
+          Acessar Dashboard do Stripe
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className={styles.container}>
@@ -102,7 +364,7 @@ export default function SellerDashboard() {
             onClick={() => setActiveTab('products')}
           >
             <span className={styles.navIcon}>📦</span>
-            <span className={styles.navText}>Minhas Caixas</span>
+            <span className={styles.navText}>Produtos</span>
           </button>
           
           <button 
@@ -114,19 +376,19 @@ export default function SellerDashboard() {
           </button>
           
           <button 
-            className={`${styles.navItem} ${activeTab === 'subscribers' ? styles.active : ''}`}
-            onClick={() => setActiveTab('subscribers')}
+            className={`${styles.navItem} ${activeTab === 'customers' ? styles.active : ''}`}
+            onClick={() => setActiveTab('customers')}
           >
             <span className={styles.navIcon}>👥</span>
-            <span className={styles.navText}>Assinantes</span>
+            <span className={styles.navText}>Clientes</span>
           </button>
           
           <button 
-            className={`${styles.navItem} ${activeTab === 'analytics' ? styles.active : ''}`}
-            onClick={() => setActiveTab('analytics')}
+            className={`${styles.navItem} ${activeTab === 'payments' ? styles.active : ''}`}
+            onClick={() => setActiveTab('payments')}
           >
-            <span className={styles.navIcon}>📈</span>
-            <span className={styles.navText}>Estatísticas</span>
+            <span className={styles.navIcon}>💰</span>
+            <span className={styles.navText}>Pagamentos</span>
           </button>
           
           <button 
@@ -140,200 +402,124 @@ export default function SellerDashboard() {
         
         <div className={styles.sidebarFooter}>
           <button className={styles.logoutButton} onClick={handleLogout}>
-            <span className={styles.navIcon}>🚪</span>
-            <span className={styles.navText}>Sair</span>
+            <span className={styles.logoutIcon}>🚪</span>
+            <span className={styles.logoutText}>Sair</span>
           </button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className={styles.mainContent}>
-        <header className={styles.contentHeader}>
-          <div className={styles.headerLeft}>
-            <h1 className={styles.pageTitle}>
-              {activeTab === 'overview' && 'Visão Geral'}
-              {activeTab === 'products' && 'Minhas Caixas'}
-              {activeTab === 'orders' && 'Pedidos'}
-              {activeTab === 'subscribers' && 'Assinantes'}
-              {activeTab === 'analytics' && 'Estatísticas'}
-              {activeTab === 'settings' && 'Configurações'}
-            </h1>
-            {activeTab === 'overview' && (
-              <p className={styles.welcomeSubtitle}>
-                Veja métricas e atividades recentes da sua loja
-              </p>
-            )}
+      {/* Main Content */}
+      <main className={styles.content}>
+        {/* Header */}
+        <header className={styles.header}>
+          <div className={styles.greeting}>
+            <h1>{getGreeting()}, {sellerData?.name.split(' ')[0]}</h1>
+            <p>Bem-vindo ao seu dashboard de vendedor</p>
           </div>
-          
-          <div className={styles.userInfo}>
-            <span className={styles.welcomeText}>
-              {getGreeting()}, <strong>{sellerData?.name}</strong>
-            </span>
+          <div className={styles.headerActions}>
+            <button className={styles.notificationButton}>
+              <span className={styles.notificationIcon}>🔔</span>
+              <span className={styles.notificationBadge}>3</span>
+            </button>
+            <div className={styles.userProfile}>
+              <div className={styles.userAvatar}>
+                {sellerData?.name.charAt(0)}
+              </div>
+              <div className={styles.userName}>
+                {sellerData?.name}
+              </div>
+            </div>
           </div>
         </header>
 
-        {/* Content for different tabs */}
-        <div className={styles.contentBody}>
-          {/* Overview Tab */}
+        {/* Content based on active tab */}
+        <div className={styles.tabContent}>
           {activeTab === 'overview' && (
-            <div className={styles.overview}>
-              <div className={styles.welcomeBanner}>
-                <div className={styles.welcomeBannerContent}>
-                  <h2>Bem-vindo à sua dashboard, {sellerData?.name}!</h2>
-                  <p>Gerencie sua loja <strong>{sellerData?.storeName}</strong> e acompanhe o desempenho das suas caixas de assinatura.</p>
-                </div>
-                <div className={styles.welcomeBannerIcon}>🚀</div>
-              </div>
-            
+            <div className={styles.overviewTab}>
               <div className={styles.statsGrid}>
                 <div className={styles.statCard}>
-                  <div className={styles.statIcon}>💰</div>
+                  <div className={styles.statIcon}>💶</div>
                   <div className={styles.statInfo}>
-                    <h3 className={styles.statTitle}>Faturamento do Mês</h3>
-                    <p className={styles.statValue}>{dashboardData.revenue}</p>
+                    <div className={styles.statValue}>{dashboardData.revenue}</div>
+                    <div className={styles.statLabel}>Receita Total</div>
                   </div>
                 </div>
                 
                 <div className={styles.statCard}>
-                  <div className={styles.statIcon}>📝</div>
+                  <div className={styles.statIcon}>📦</div>
                   <div className={styles.statInfo}>
-                    <h3 className={styles.statTitle}>Pedidos</h3>
-                    <p className={styles.statValue}>{dashboardData.orders}</p>
+                    <div className={styles.statValue}>{dashboardData.orders}</div>
+                    <div className={styles.statLabel}>Pedidos</div>
                   </div>
                 </div>
                 
                 <div className={styles.statCard}>
                   <div className={styles.statIcon}>👥</div>
                   <div className={styles.statInfo}>
-                    <h3 className={styles.statTitle}>Assinantes</h3>
-                    <p className={styles.statValue}>{dashboardData.subscribers}</p>
+                    <div className={styles.statValue}>{dashboardData.subscribers}</div>
+                    <div className={styles.statLabel}>Assinantes</div>
                   </div>
                 </div>
                 
                 <div className={styles.statCard}>
                   <div className={styles.statIcon}>👁️</div>
                   <div className={styles.statInfo}>
-                    <h3 className={styles.statTitle}>Visualizações</h3>
-                    <p className={styles.statValue}>{dashboardData.views}</p>
+                    <div className={styles.statValue}>{dashboardData.views}</div>
+                    <div className={styles.statLabel}>Visualizações</div>
                   </div>
                 </div>
               </div>
               
-              <div className={styles.recentActivity}>
-                <h2 className={styles.sectionTitle}>Atividade Recente</h2>
-                
-                <div className={styles.activityList}>
-                  <div className={styles.activityItem}>
-                    <div className={styles.activityIcon}>🛒</div>
-                    <div className={styles.activityInfo}>
-                      <h4 className={styles.activityTitle}>Novo Pedido #1234</h4>
-                      <p className={styles.activityMeta}>Hoje às 14:25</p>
-                    </div>
-                    <div className={styles.activityStatus}>Novo</div>
-                  </div>
-                  
-                  <div className={styles.activityItem}>
-                    <div className={styles.activityIcon}>👤</div>
-                    <div className={styles.activityInfo}>
-                      <h4 className={styles.activityTitle}>Novo Assinante</h4>
-                      <p className={styles.activityMeta}>Hoje às 11:52</p>
-                    </div>
-                    <div className={styles.activityStatus}>Novo</div>
-                  </div>
-                  
-                  <div className={styles.activityItem}>
-                    <div className={styles.activityIcon}>⭐</div>
-                    <div className={styles.activityInfo}>
-                      <h4 className={styles.activityTitle}>Nova Avaliação de 5 Estrelas</h4>
-                      <p className={styles.activityMeta}>Ontem às 18:30</p>
-                    </div>
-                    <div className={styles.activityStatus}>Recente</div>
-                  </div>
-                  
-                  <div className={styles.activityItem}>
-                    <div className={styles.activityIcon}>💬</div>
-                    <div className={styles.activityInfo}>
-                      <h4 className={styles.activityTitle}>Novo Comentário</h4>
-                      <p className={styles.activityMeta}>Ontem às 15:12</p>
-                    </div>
-                    <div className={styles.activityStatus}>Recente</div>
-                  </div>
-                </div>
+              {/* Stripe Connect Status */}
+              <div className={styles.stripeConnectSection}>
+                <h2>Pagamentos com Stripe</h2>
+                <StripeConnectStatus />
               </div>
               
-              <div className={styles.quickActions}>
-                <h2 className={styles.sectionTitle}>Ações Rápidas</h2>
+              {/* Recent Orders */}
+              <div className={styles.recentOrdersSection}>
+                <div className={styles.sectionHeader}>
+                  <h2>Pedidos Recentes</h2>
+                  <Link href="/seller/orders">
+                    <span className={styles.viewAllLink}>Ver Todos</span>
+                  </Link>
+                </div>
                 
-                <div className={styles.actionButtons}>
-                  <button className={styles.actionButton} onClick={() => setActiveTab('products')}>
-                    <span className={styles.actionIcon}>➕</span>
-                    Adicionar Nova Caixa
-                  </button>
-                  
-                  <button className={styles.actionButton} onClick={() => setActiveTab('orders')}>
-                    <span className={styles.actionIcon}>📦</span>
-                    Gerenciar Pedidos
-                  </button>
-                  
-                  <button className={styles.actionButton} onClick={() => setActiveTab('settings')}>
-                    <span className={styles.actionIcon}>🖌️</span>
-                    Editar Perfil da Loja
-                  </button>
+                <div className={styles.emptyState}>
+                  <div className={styles.emptyStateIcon}>📦</div>
+                  <h3>Nenhum pedido recente</h3>
+                  <p>Seus pedidos recentes aparecerão aqui.</p>
                 </div>
               </div>
             </div>
           )}
           
-          {/* Products Tab - Placeholder for now */}
-          {activeTab === 'products' && (
-            <div className={styles.comingSoon}>
-              <h2>Gerencie suas caixas de assinatura</h2>
-              <p>Esta funcionalidade estará disponível em breve.</p>
-              <div className={styles.placeholderBox}>
-                <h3>Adicionar Nova Caixa</h3>
-                <p>Clique para criar uma nova caixa de assinatura</p>
-                <button className={styles.placeholderButton}>
-                  <span>➕</span> Nova Caixa
-                </button>
+          {activeTab === 'payments' && (
+            <div className={styles.paymentsTab}>
+              <h2>Pagamentos</h2>
+              
+              {/* Stripe Connect Status */}
+              <div className={styles.stripeConnectSection}>
+                <h3>Configuração de Pagamentos</h3>
+                <StripeConnectStatus />
               </div>
-            </div>
-          )}
-          
-          {/* Orders Tab - Placeholder for now */}
-          {activeTab === 'orders' && (
-            <div className={styles.comingSoon}>
-              <h2>Gerencie seus pedidos</h2>
-              <p>Esta funcionalidade estará disponível em breve.</p>
-              <div className={styles.placeholderTable}>
-                <div className={styles.placeholderTableHeader}>
-                  <div>ID do Pedido</div>
-                  <div>Cliente</div>
-                  <div>Valor</div>
-                  <div>Status</div>
-                  <div>Data</div>
-                  <div>Ações</div>
+              
+              {/* Payment History */}
+              <div className={styles.paymentHistorySection}>
+                <div className={styles.sectionHeader}>
+                  <h3>Histórico de Pagamentos</h3>
                 </div>
-                <div className={styles.placeholderTableRow}>
-                  <div>#1234</div>
-                  <div>Cliente Exemplo</div>
-                  <div>€29,90</div>
-                  <div>Pendente</div>
-                  <div>Hoje</div>
-                  <div>
-                    <button className={styles.smallButton}>Ver</button>
-                  </div>
+                
+                <div className={styles.emptyState}>
+                  <div className={styles.emptyStateIcon}>💰</div>
+                  <h3>Nenhum pagamento recebido</h3>
+                  <p>Seus pagamentos aparecerão aqui quando você começar a vender.</p>
                 </div>
               </div>
             </div>
           )}
           
-          {/* Other tabs - Placeholders */}
-          {(activeTab === 'subscribers' || activeTab === 'analytics' || activeTab === 'settings') && (
-            <div className={styles.comingSoon}>
-              <h2>Funcionalidade em Desenvolvimento</h2>
-              <p>Esta área está sendo implementada e estará disponível em breve.</p>
-            </div>
-          )}
+          {/* ... outros tabs ... */}
         </div>
       </main>
     </div>

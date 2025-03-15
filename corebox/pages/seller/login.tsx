@@ -25,10 +25,10 @@ export default function SellerLogin() {
         
         // Store seller session data
         const sellerData = {
-          id: '123456',
+          id: 'seller_1', // Usando o ID que adicionamos ao arquivo sellers.json
           email: email,
-          storeName: 'Loja ' + email.split('@')[0],
-          name: email.split('@')[0]
+          storeName: 'Corecafot', // Nome da loja do arquivo sellers.json
+          name: 'Sílvia Maia' // Nome do vendedor do arquivo sellers.json
         };
         
         // Save to localStorage for session persistence

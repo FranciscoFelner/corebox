@@ -1,13 +1,38 @@
+import { loadStripe } from '@stripe/stripe-js';
 import Stripe from 'stripe';
-import { STRIPE_SECRET_KEY } from '../config/stripe';
 
-// Inicializa o cliente Stripe com a chave secreta
-const stripe = new Stripe(STRIPE_SECRET_KEY, {
-  apiVersion: '2025-02-24.acacia', // Versão mais recente da API
+// Verificar se estamos em ambiente de desenvolvimento
+if (process.env.NODE_ENV !== 'production') {
+  // Carregar variáveis de ambiente do arquivo .env.local
+  require('dotenv').config({ path: '.env.local' });
+}
+
+// Verificar se a chave secreta do Stripe está definida
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeSecretKey) {
+  console.error('STRIPE_SECRET_KEY não está definida nas variáveis de ambiente');
+}
+
+console.log('Inicializando cliente Stripe com chave secreta:', stripeSecretKey ? 'Chave definida' : 'Chave não definida');
+
+// Inicializa o cliente Stripe no lado do servidor
+export const stripe = new Stripe(stripeSecretKey || '', {
   appInfo: {
-    name: 'CoreBox Marketplace',
+    name: 'CoreBox',
     version: '1.0.0',
   },
 });
 
-export default stripe; 
+// Inicializa o cliente Stripe no lado do cliente
+let stripePromise: Promise<any> | null = null;
+export const getStripe = () => {
+  if (!stripePromise) {
+    const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    if (!publishableKey) {
+      console.error('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY não está definida nas variáveis de ambiente');
+    }
+    console.log('Inicializando cliente Stripe no navegador com chave publicável:', publishableKey ? 'Chave definida' : 'Chave não definida');
+    stripePromise = loadStripe(publishableKey || '');
+  }
+  return stripePromise;
+}; 

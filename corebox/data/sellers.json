@@ -1,5 +1,6 @@
 [
   {
+    "id": "seller_1",
     "name": "Sílvia Maia",
     "email": "fmfelner@gmail.com",
     "phone": "967273763",
@@ -7,6 +8,9 @@
     "category": "tech",
     "description": "soaudfs",
     "terms": "on",
-    "createdAt": "2025-02-28T12:33:36.450Z"
+    "createdAt": "2025-02-28T12:33:36.450Z",
+    "stripeAccountId": "acct_1QzhpXPpEJKPcsPX",
+    "stripeAccountStatus": "active",
+    "stripeOnboardingComplete": true
   }
 ]

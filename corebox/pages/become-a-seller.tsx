@@ -2,11 +2,13 @@ import Head from 'next/head';
 import Link from 'next/link';
 import styles from '../styles/BecomeASeller.module.css';
 import { useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 
 export default function BecomeASeller() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [redirectToStripe, setRedirectToStripe] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -16,6 +18,13 @@ export default function BecomeASeller() {
     const formData = new FormData(e.target as HTMLFormElement);
     const formValues = Object.fromEntries(formData.entries());
     
+    // Adicionar um ID único para o vendedor
+    const sellerId = uuidv4();
+    const sellerData = {
+      ...formValues,
+      id: sellerId,
+    };
+    
     try {
       // Enviar dados para nossa API
       const response = await fetch('/api/sellers', {
@@ -23,7 +32,7 @@ export default function BecomeASeller() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formValues),
+        body: JSON.stringify(sellerData),
       });
       
       const data = await response.json();
@@ -31,6 +40,28 @@ export default function BecomeASeller() {
       if (response.ok) {
         setSubmitSuccess(true);
         (e.target as HTMLFormElement).reset();
+        
+        // Iniciar o processo de onboarding do Stripe Connect
+        const stripeResponse = await fetch('/api/stripe/connect', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            sellerId,
+            email: formValues.email as string,
+          }),
+        });
+        
+        const stripeData = await stripeResponse.json();
+        
+        if (stripeResponse.ok && stripeData.url) {
+          setRedirectToStripe(true);
+          // Redirecionar para o Stripe Connect Onboarding
+          window.location.href = stripeData.url;
+        } else {
+          throw new Error(stripeData.error || 'Erro ao conectar com o Stripe');
+        }
       } else {
         throw new Error(data.message || 'Ocorreu um erro ao enviar o formulário');
       }
@@ -174,62 +205,125 @@ export default function BecomeASeller() {
         </section>
         
         <section id="form" className={styles.formSection}>
-          <h2>Comece a Vender Hoje</h2>
-          <p className={styles.formIntro}>Preencha o formulário abaixo para se tornar um vendedor na CoreBox.</p>
-          
-          <form className={styles.sellerForm} onSubmit={handleSubmit}>
-            <div className={styles.formGroup}>
-              <label htmlFor="name">Nome Completo</label>
-              <input type="text" id="name" name="name" placeholder="Seu nome completo" required />
-            </div>
+          <div className={styles.formContainer}>
+            <h2>Cadastre-se como Vendedor</h2>
             
-            <div className={styles.formGroup}>
-              <label htmlFor="email">Email</label>
-              <input type="email" id="email" name="email" placeholder="seu@email.com" required />
-            </div>
-            
-            <div className={styles.formGroup}>
-              <label htmlFor="phone">Telefone</label>
-              <input type="tel" id="phone" name="phone" placeholder="(00) 00000-0000" />
-            </div>
-            
-            <div className={styles.formGroup}>
-              <label htmlFor="storeName">Nome da Loja</label>
-              <input type="text" id="storeName" name="storeName" placeholder="Nome da sua loja" required />
-            </div>
-            
-            <div className={styles.formGroup}>
-              <label htmlFor="description">Descreva suas Caixas</label>
-              <textarea id="description" name="description" placeholder="Conte-nos um pouco sobre as caixas que pretende vender..." rows={4}></textarea>
-            </div>
-            
-            <div className={styles.formGroup}>
-              <label className={styles.checkboxLabel}>
-                <input type="checkbox" name="terms" required />
-                <span>Concordo com os <a href="#" className={styles.link}>Termos e Condições</a> e <a href="#" className={styles.link}>Política de Privacidade</a></span>
-              </label>
-            </div>
-            
-            {submitSuccess && (
+            {submitSuccess && !redirectToStripe ? (
               <div className={styles.successMessage}>
-                Cadastro enviado com sucesso! Entraremos em contato em breve.
+                <h3>Cadastro recebido com sucesso!</h3>
+                <p>Estamos redirecionando você para o Stripe para completar seu cadastro como vendedor.</p>
+                <div className={styles.loadingSpinner}></div>
               </div>
-            )}
-            
-            {submitError && (
-              <div className={styles.errorMessage}>
-                {submitError}
+            ) : submitSuccess && redirectToStripe ? (
+              <div className={styles.successMessage}>
+                <h3>Redirecionando para o Stripe...</h3>
+                <p>Você será redirecionado para o Stripe para completar seu cadastro como vendedor.</p>
+                <div className={styles.loadingSpinner}></div>
               </div>
+            ) : (
+              <form onSubmit={handleSubmit} className={styles.form}>
+                {submitError && (
+                  <div className={styles.errorMessage}>
+                    <p>{submitError}</p>
+                  </div>
+                )}
+                
+                <div className={styles.formGroup}>
+                  <label htmlFor="name">Nome Completo</label>
+                  <input 
+                    type="text" 
+                    id="name" 
+                    name="name" 
+                    required 
+                    placeholder="Seu nome completo"
+                  />
+                </div>
+                
+                <div className={styles.formGroup}>
+                  <label htmlFor="email">Email</label>
+                  <input 
+                    type="email" 
+                    id="email" 
+                    name="email" 
+                    required 
+                    placeholder="seu@email.com"
+                  />
+                </div>
+                
+                <div className={styles.formGroup}>
+                  <label htmlFor="phone">Telefone</label>
+                  <input 
+                    type="tel" 
+                    id="phone" 
+                    name="phone" 
+                    required 
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+                
+                <div className={styles.formGroup}>
+                  <label htmlFor="businessName">Nome da Empresa</label>
+                  <input 
+                    type="text" 
+                    id="businessName" 
+                    name="businessName" 
+                    required 
+                    placeholder="Nome da sua empresa"
+                  />
+                </div>
+                
+                <div className={styles.formGroup}>
+                  <label htmlFor="boxDescription">Descrição da Caixa de Assinatura</label>
+                  <textarea 
+                    id="boxDescription" 
+                    name="boxDescription" 
+                    required 
+                    placeholder="Descreva sua caixa de assinatura"
+                    rows={4}
+                  ></textarea>
+                </div>
+                
+                <div className={styles.formGroup}>
+                  <label htmlFor="website">Website (opcional)</label>
+                  <input 
+                    type="url" 
+                    id="website" 
+                    name="website" 
+                    placeholder="https://seusite.com"
+                  />
+                </div>
+                
+                <div className={styles.formGroup}>
+                  <label htmlFor="instagram">Instagram (opcional)</label>
+                  <input 
+                    type="text" 
+                    id="instagram" 
+                    name="instagram" 
+                    placeholder="@seuinstagram"
+                  />
+                </div>
+                
+                <div className={styles.formActions}>
+                  <button 
+                    type="submit" 
+                    className={styles.submitButton}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? 'Enviando...' : 'Enviar Cadastro'}
+                  </button>
+                </div>
+                
+                <div className={styles.formDisclaimer}>
+                  <p>
+                    Ao enviar este formulário, você concorda com nossos <a href="#">Termos de Serviço</a> e <a href="#">Política de Privacidade</a>.
+                  </p>
+                  <p>
+                    Após o envio, você será redirecionado para o Stripe para configurar sua conta de pagamentos.
+                  </p>
+                </div>
+              </form>
             )}
-            
-            <button 
-              type="submit" 
-              className={styles.submitButton}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Enviando...' : 'Enviar Cadastro'}
-            </button>
-          </form>
+          </div>
         </section>
         
         <section className={styles.testimonials}>

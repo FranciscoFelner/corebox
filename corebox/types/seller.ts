@@ -9,15 +9,6 @@ export interface SellerData {
   createdAt: string;
   updatedAt: string;
   
-  // Campos relacionados ao Stripe Connect
-  stripeAccountId?: string;
-  stripeAccountStatus?: 'pending' | 'active' | 'rejected';
-  stripeAccountCreatedAt?: string;
-  stripeAccountUpdatedAt?: string;
-  stripeAccountDetailsSubmitted?: boolean;
-  stripeAccountPayoutsEnabled?: boolean;
-  stripeAccountChargesEnabled?: boolean;
-  
   // Endereço do vendedor
   address?: {
     street?: string;
@@ -33,13 +24,4 @@ export interface SellerData {
   bankAccountLastFour?: string;
   bankAccountType?: string;
   bankAccountStatus?: 'pending' | 'verified' | 'rejected';
-}
-
-export interface StripeAccountLink {
-  url: string;
-  expiresAt: number;
-}
-
-export interface StripeLoginLink {
-  url: string;
 } 
